@@ -54,6 +54,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal
 
                         try
                         {
+                            _log.ConnectionWrite(_connectionId, buffer.Length);
+
                             var writeResult = await writeReq.WriteAsync(_socket, buffer);
 
                             LogWriteInfo(writeResult.Status, writeResult.Error);
@@ -84,11 +86,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal
 
         private void LogWriteInfo(int status, Exception error)
         {
-            if (error == null)
-            {
-                _log.ConnectionWriteCallback(_connectionId, status);
-            }
-            else
+            _log.ConnectionWriteCallback(_connectionId, status);
+
+            if (error != null)
             {
                 // Log connection resets at a lower (Debug) level.
                 if (status == LibuvConstants.ECONNRESET)
