@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.System.IO.Pipelines;
 using Microsoft.Extensions.Internal;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 {
@@ -78,6 +79,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                     return;
                 }
 
+                _log.LogInformation($@"Connection id ""{_connectionId}"" OutputProducer disposed.");
                 _log.ConnectionDisconnect(_connectionId);
                 _completed = true;
                 _pipe.Writer.Complete();
@@ -93,6 +95,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                     return;
                 }
 
+                _log.LogInformation($@"Connection id ""{_connectionId}"" OutputProducer aborted.");
                 _log.ConnectionDisconnect(_connectionId);
                 _completed = true;
                 _pipe.Reader.CancelPendingRead();

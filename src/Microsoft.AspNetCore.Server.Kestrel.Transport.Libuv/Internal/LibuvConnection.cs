@@ -123,7 +123,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal
 
         private void OnRead(UvStreamHandle handle, int status)
         {
-            Log.LogTrace(@"Connection id ""{ConnectionId}"" read callback status: ""{Status}"".", ConnectionId, status);
+            Log.LogInformation($@"Connection id ""{ConnectionId}"" read callback status: ""{status}"".");
 
             if (status == 0)
             {

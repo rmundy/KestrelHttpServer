@@ -641,6 +641,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                             socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
                             socket.Send(Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost:\r\n\r\n"));
 
+                            logSb.AppendLine("Waiting for keep alive log.");
                             // Wait until request is done being processed
                             Assert.True(await requestDone.WaitAsync(TimeSpan.FromSeconds(10)));
 
@@ -652,6 +653,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                         // This check MUST come before disposing the server, otherwise there's a race where the RST
                         // is still in flight when the connection is aborted, leading to the reset never being received
                         // and therefore not logged.
+                        logSb.AppendLine("Waiting for connection reset log.");
                         Assert.True(await connectionReset.WaitAsync(TimeSpan.FromSeconds(10)));
                     }
                 }
