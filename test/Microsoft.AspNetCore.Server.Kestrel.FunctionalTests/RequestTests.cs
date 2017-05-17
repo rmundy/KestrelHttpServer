@@ -582,6 +582,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                             {
                                 logSb.AppendLine($"Microsoft.AspNetCore.Server.Kestrel(.Transport.Libuv): {formatter(state, ex)}");
 
+                                if (ex != null)
+                                {
+                                    logSb.AppendLine(ex.ToString());
+                                }
+
                                 if (eventId.Id == _connectionKeepAliveEventId)
                                 {
                                     requestDone.Release();
@@ -605,6 +610,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                             (logLevel, eventId, state, ex, formatter) =>
                             {
                                 logSb.AppendLine($"Other: {formatter(state, ex)}");
+
+                                if (ex != null)
+                                {
+                                    logSb.AppendLine(ex.ToString());
+                                }
                             });
 
                     var mockLoggerFactory = new Mock<ILoggerFactory>();
@@ -665,6 +675,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                 _output.WriteLine("");
                 _output.WriteLine("Adapter Logs: ");
                 _output.WriteLine(adapterSb.ToString());
+                //throw new Exception();
                 throw;
             }
         }
