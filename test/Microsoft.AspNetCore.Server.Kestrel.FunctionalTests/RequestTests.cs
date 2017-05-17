@@ -575,7 +575,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                         .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>()))
                         .Returns(true);
                     mockLogger
-                        .Setup(logger => logger.Log(LogLevel.Debug, It.IsAny<EventId>(), It.IsAny<object>(), null,
+                        .Setup(logger => logger.Log(It.IsAny<LogLevel>(), It.IsAny<EventId>(), It.IsAny<object>(), It.IsAny<Exception>(),
                             It.IsAny<Func<object, Exception, string>>()))
                         .Callback<LogLevel, EventId, object, Exception, Func<object, Exception, string>>(
                             (logLevel, eventId, state, ex, formatter) =>
@@ -599,7 +599,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
                         .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>()))
                         .Returns(true);
                     mockLogger2
-                        .Setup(logger => logger.Log(LogLevel.Debug, It.IsAny<EventId>(), It.IsAny<object>(), null,
+                        .Setup(logger => logger.Log(It.IsAny<LogLevel>(), It.IsAny<EventId>(), It.IsAny<object>(), It.IsAny<Exception>(),
                             It.IsAny<Func<object, Exception, string>>()))
                         .Callback<LogLevel, EventId, object, Exception, Func<object, Exception, string>>(
                             (logLevel, eventId, state, ex, formatter) =>
