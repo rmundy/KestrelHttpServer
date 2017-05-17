@@ -28,6 +28,7 @@ using Moq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
 {
@@ -315,68 +316,92 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
             }
         }
 
-        [Fact(Skip= "https://github.com/aspnet/KestrelHttpServer/issues/1835")]
+
+        private readonly ILoggerFactory _loggerFactory;
+        public RequestTests(ITestOutputHelper output) => _loggerFactory = new LoggerFactory().AddXunit(output);
+
+        [Fact]
         public async Task ConnectionResetBetweenRequestsIsLoggedAsDebug()
         {
-            var requestDone = new SemaphoreSlim(0);
-            var connectionReset = new SemaphoreSlim(0);
-
-            var mockLogger = new Mock<ILogger>();
-            mockLogger
-                .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>()))
-                .Returns(true);
-            mockLogger
-                .Setup(logger => logger.Log(LogLevel.Debug, _connectionKeepAliveEventId, It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
-                .Callback(() =>
-                {
-                    requestDone.Release();
-                });
-            mockLogger
-                .Setup(logger => logger.Log(LogLevel.Debug, _connectionResetEventId, It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
-                .Callback(() =>
-                {
-                    connectionReset.Release();
-                });
-
-            var mockLoggerFactory = new Mock<ILoggerFactory>();
-            mockLoggerFactory
-                .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel"))
-                .Returns(mockLogger.Object);
-            mockLoggerFactory
-                .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv"))
-                .Returns(mockLogger.Object);
-            mockLoggerFactory
-                .Setup(factory => factory.CreateLogger(It.IsNotIn("Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv")))
-                .Returns(Mock.Of<ILogger>());
-
-
-            var builder = new WebHostBuilder()
-                .UseLoggerFactory(mockLoggerFactory.Object)
-                .UseKestrel()
-                .UseUrls("http://127.0.0.1:0")
-                .Configure(app => app.Run(context => TaskCache.CompletedTask));
-
-            using (var host = builder.Build())
+            while (true)
             {
-                host.Start();
+                var xunitLogger = _loggerFactory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel");
+                var requestDone = new SemaphoreSlim(0);
+                var connectionReset = new SemaphoreSlim(0);
 
-                using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                var mockLogger = new Mock<ILogger>();
+                mockLogger
+                    .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>()))
+                    .Returns(true);
+                mockLogger
+                    .Setup(logger => logger.Log(LogLevel.Debug, _connectionKeepAliveEventId, It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
+                    .Callback(() =>
+                    {
+                        requestDone.Release();
+                    });
+                mockLogger
+                    .Setup(logger => logger.Log(LogLevel.Debug, _connectionResetEventId, It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
+                    .Callback(() =>
+                    {
+                        connectionReset.Release();
+                    });
+                mockLogger
+                    .Setup(logger => logger.Log(LogLevel.Debug, It.IsAny<EventId>(), It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
+                    .Callback<LogLevel, EventId, object, Exception, Func< object, Exception, string>>((logLevel, eventId, state, ex, formatter) =>
+                    {
+                        xunitLogger.Log(logLevel, eventId, state, ex, formatter);
+
+                        if (eventId.Id == _connectionKeepAliveEventId)
+                        {
+                            requestDone.Release();
+                        }
+
+                        if (eventId.Id == _connectionResetEventId)
+                        {
+                            connectionReset.Release();
+                        }
+                    });
+
+                var mockLoggerFactory = new Mock<ILoggerFactory>();
+                mockLoggerFactory
+                    .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel"))
+                    .Returns(mockLogger.Object);
+                mockLoggerFactory
+                    .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv"))
+                    .Returns(mockLogger.Object);
+                mockLoggerFactory
+                    .Setup(factory => factory.CreateLogger(It.IsNotIn("Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv")))
+                    .Returns(Mock.Of<ILogger>());
+
+
+                var builder = new WebHostBuilder()
+                    .UseLoggerFactory(mockLoggerFactory.Object)
+                    .UseKestrel()
+                    .UseUrls("http://127.0.0.1:0")
+                    .Configure(app => app.Run(context => TaskCache.CompletedTask));
+
+                using (var host = builder.Build())
                 {
-                    socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
-                    socket.Send(Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost:\r\n\r\n"));
+                    host.Start();
 
-                    // Wait until request is done being processed
-                    Assert.True(await requestDone.WaitAsync(TimeSpan.FromSeconds(10)));
+                    using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                    {
+                        socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
+                        socket.Send(Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost:\r\n\r\n"));
 
-                    // Force a reset
-                    socket.LingerState = new LingerOption(true, 0);
+                        // Wait until request is done being processed
+                        Assert.True(await requestDone.WaitAsync(TimeSpan.FromSeconds(10)));
+
+                        // Force a reset
+                        socket.LingerState = new LingerOption(true, 0);
+                    }
+
+                    // If the reset is correctly logged as Debug, the wait below should complete shortly.
+                    // This check MUST come before disposing the server, otherwise there's a race where the RST
+                    // is still in flight when the connection is aborted, leading to the reset never being received
+                    // and therefore not logged.
+                    Assert.True(await connectionReset.WaitAsync(TimeSpan.FromSeconds(10)));
                 }
-
-                // If the reset is correctly logged as Debug, the wait below should complete shortly.
-                // This check MUST come before disposing the server, otherwise there's a race where the RST
-                // is still in flight when the connection is aborted, leading to the reset never being received
-                // and therefore not logged.
-                Assert.True(await connectionReset.WaitAsync(TimeSpan.FromSeconds(10)));
             }
         }
 
