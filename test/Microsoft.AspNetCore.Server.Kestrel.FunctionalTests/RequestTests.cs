@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Adapter.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Abstractions;
 using Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal.Networking;
@@ -316,92 +317,353 @@ namespace Microsoft.AspNetCore.Server.Kestrel.FunctionalTests
             }
         }
 
+        //private readonly ILoggerFactory _loggerFactory;
+        //public RequestTests(ITestOutputHelper output) => _loggerFactory = new LoggerFactory().AddXunit(output);
+        private readonly ITestOutputHelper _output;
+        public RequestTests(ITestOutputHelper output) => _output = output;
 
-        private readonly ILoggerFactory _loggerFactory;
-        public RequestTests(ITestOutputHelper output) => _loggerFactory = new LoggerFactory().AddXunit(output);
+        public class StringBuilderConnectionAdapter : IConnectionAdapter
+        {
+            private readonly StringBuilder _stringBuilder;
+
+            public StringBuilderConnectionAdapter(StringBuilder stringBuilder)
+            {
+                _stringBuilder = stringBuilder;
+            }
+
+            public bool IsHttps => false;
+
+            public Task<IAdaptedConnection> OnConnectionAsync(ConnectionAdapterContext context)
+            {
+                return Task.FromResult<IAdaptedConnection>(
+                    new StringBuilderAdaptedConnection(context.ConnectionStream, _stringBuilder));
+            }
+
+            private class StringBuilderAdaptedConnection : IAdaptedConnection
+            {
+                public StringBuilderAdaptedConnection(Stream rawStream, StringBuilder stringBuilder)
+                {
+                    ConnectionStream = new StringBuilderStream(rawStream, stringBuilder);
+                }
+
+                public Stream ConnectionStream { get; }
+
+                public void Dispose()
+                {
+                }
+            }
+
+            private class StringBuilderStream : Stream
+            {
+                private readonly Stream _inner;
+                private readonly StringBuilder _stringBuilder;
+
+                public StringBuilderStream(Stream inner, StringBuilder stringBuilder)
+                {
+                    _inner = inner;
+                    _stringBuilder = stringBuilder;
+                }
+
+                public override bool CanRead
+                {
+                    get
+                    {
+                        return _inner.CanRead;
+                    }
+                }
+
+                public override bool CanSeek
+                {
+                    get
+                    {
+                        return _inner.CanSeek;
+                    }
+                }
+
+                public override bool CanWrite
+                {
+                    get
+                    {
+                        return _inner.CanWrite;
+                    }
+                }
+
+                public override long Length
+                {
+                    get
+                    {
+                        return _inner.Length;
+                    }
+                }
+
+                public override long Position
+                {
+                    get
+                    {
+                        return _inner.Position;
+                    }
+
+                    set
+                    {
+                        _inner.Position = value;
+                    }
+                }
+
+                public override void Flush()
+                {
+                    _inner.Flush();
+                }
+
+                public override Task FlushAsync(CancellationToken cancellationToken)
+                {
+                    return _inner.FlushAsync(cancellationToken);
+                }
+
+                public override int Read(byte[] buffer, int offset, int count)
+                {
+                    int read = _inner.Read(buffer, offset, count);
+                    Log("Read", read, buffer, offset);
+                    return read;
+                }
+
+                public async override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+                {
+                    int read = await _inner.ReadAsync(buffer, offset, count, cancellationToken);
+                    Log("ReadAsync", read, buffer, offset);
+                    return read;
+                }
+
+                public override long Seek(long offset, SeekOrigin origin)
+                {
+                    return _inner.Seek(offset, origin);
+                }
+
+                public override void SetLength(long value)
+                {
+                    _inner.SetLength(value);
+                }
+
+                public override void Write(byte[] buffer, int offset, int count)
+                {
+                    Log("Write", count, buffer, offset);
+                    _inner.Write(buffer, offset, count);
+                }
+
+                public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+                {
+                    Log("WriteAsync", count, buffer, offset);
+                    return _inner.WriteAsync(buffer, offset, count, cancellationToken);
+                }
+
+                private void Log(string method, int count, byte[] buffer, int offset)
+                {
+                    var builder = new StringBuilder($"{method}[{count}] ");
+
+                    // Write the hex
+                    for (int i = offset; i < offset + count; i++)
+                    {
+                        builder.Append(buffer[i].ToString("X2"));
+                        builder.Append(" ");
+                    }
+                    builder.AppendLine();
+                    // Write the bytes as if they were ASCII
+                    for (int i = offset; i < offset + count; i++)
+                    {
+                        builder.Append((char)buffer[i]);
+                    }
+
+                    _stringBuilder.AppendLine(builder.ToString());
+                }
+
+                // The below APM methods call the underlying Read/WriteAsync methods which will still be logged.
+                public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
+                {
+                    var task = ReadAsync(buffer, offset, count, default(CancellationToken), state);
+                    if (callback != null)
+                    {
+                        task.ContinueWith(t => callback.Invoke(t));
+                    }
+                    return task;
+                }
+
+                public override int EndRead(IAsyncResult asyncResult)
+                {
+                    return ((Task<int>)asyncResult).GetAwaiter().GetResult();
+                }
+
+                private Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken, object state)
+                {
+                    var tcs = new TaskCompletionSource<int>(state);
+                    var task = ReadAsync(buffer, offset, count, cancellationToken);
+                    task.ContinueWith((task2, state2) =>
+                    {
+                        var tcs2 = (TaskCompletionSource<int>)state2;
+                        if (task2.IsCanceled)
+                        {
+                            tcs2.SetCanceled();
+                        }
+                        else if (task2.IsFaulted)
+                        {
+                            tcs2.SetException(task2.Exception);
+                        }
+                        else
+                        {
+                            tcs2.SetResult(task2.Result);
+                        }
+                    }, tcs, cancellationToken);
+                    return tcs.Task;
+                }
+
+                public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
+                {
+                    var task = WriteAsync(buffer, offset, count, default(CancellationToken), state);
+                    if (callback != null)
+                    {
+                        task.ContinueWith(t => callback.Invoke(t));
+                    }
+                    return task;
+                }
+
+                public override void EndWrite(IAsyncResult asyncResult)
+                {
+                    ((Task<object>)asyncResult).GetAwaiter().GetResult();
+                }
+
+                private Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken, object state)
+                {
+                    var tcs = new TaskCompletionSource<object>(state);
+                    var task = WriteAsync(buffer, offset, count, cancellationToken);
+                    task.ContinueWith((task2, state2) =>
+                    {
+                        var tcs2 = (TaskCompletionSource<object>)state2;
+                        if (task2.IsCanceled)
+                        {
+                            tcs2.SetCanceled();
+                        }
+                        else if (task2.IsFaulted)
+                        {
+                            tcs2.SetException(task2.Exception);
+                        }
+                        else
+                        {
+                            tcs2.SetResult(null);
+                        }
+                    }, tcs, cancellationToken);
+                    return tcs.Task;
+                }
+            }
+        }
 
         [Fact]
         public async Task ConnectionResetBetweenRequestsIsLoggedAsDebug()
         {
-            while (true)
+            var logSb = new StringBuilder();
+            var adapterSb = new StringBuilder();
+
+            try
             {
-                var xunitLogger = _loggerFactory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel");
-                var requestDone = new SemaphoreSlim(0);
-                var connectionReset = new SemaphoreSlim(0);
-
-                var mockLogger = new Mock<ILogger>();
-                mockLogger
-                    .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>()))
-                    .Returns(true);
-                mockLogger
-                    .Setup(logger => logger.Log(LogLevel.Debug, _connectionKeepAliveEventId, It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
-                    .Callback(() =>
-                    {
-                        requestDone.Release();
-                    });
-                mockLogger
-                    .Setup(logger => logger.Log(LogLevel.Debug, _connectionResetEventId, It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
-                    .Callback(() =>
-                    {
-                        connectionReset.Release();
-                    });
-                mockLogger
-                    .Setup(logger => logger.Log(LogLevel.Debug, It.IsAny<EventId>(), It.IsAny<object>(), null, It.IsAny<Func<object, Exception, string>>()))
-                    .Callback<LogLevel, EventId, object, Exception, Func< object, Exception, string>>((logLevel, eventId, state, ex, formatter) =>
-                    {
-                        xunitLogger.Log(logLevel, eventId, state, ex, formatter);
-
-                        if (eventId.Id == _connectionKeepAliveEventId)
-                        {
-                            requestDone.Release();
-                        }
-
-                        if (eventId.Id == _connectionResetEventId)
-                        {
-                            connectionReset.Release();
-                        }
-                    });
-
-                var mockLoggerFactory = new Mock<ILoggerFactory>();
-                mockLoggerFactory
-                    .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel"))
-                    .Returns(mockLogger.Object);
-                mockLoggerFactory
-                    .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv"))
-                    .Returns(mockLogger.Object);
-                mockLoggerFactory
-                    .Setup(factory => factory.CreateLogger(It.IsNotIn("Microsoft.AspNetCore.Server.Kestrel", "Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv")))
-                    .Returns(Mock.Of<ILogger>());
-
-
-                var builder = new WebHostBuilder()
-                    .UseLoggerFactory(mockLoggerFactory.Object)
-                    .UseKestrel()
-                    .UseUrls("http://127.0.0.1:0")
-                    .Configure(app => app.Run(context => TaskCache.CompletedTask));
-
-                using (var host = builder.Build())
+                while (true)
                 {
-                    host.Start();
+                    logSb.Clear();
+                    adapterSb.Clear();
 
-                    using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                    var requestDone = new SemaphoreSlim(0);
+                    var connectionReset = new SemaphoreSlim(0);
+
+                    var mockLogger = new Mock<ILogger>();
+                    mockLogger
+                        .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>()))
+                        .Returns(true);
+                    mockLogger
+                        .Setup(logger => logger.Log(LogLevel.Debug, It.IsAny<EventId>(), It.IsAny<object>(), null,
+                            It.IsAny<Func<object, Exception, string>>()))
+                        .Callback<LogLevel, EventId, object, Exception, Func<object, Exception, string>>(
+                            (logLevel, eventId, state, ex, formatter) =>
+                            {
+                                logSb.AppendLine($"Microsoft.AspNetCore.Server.Kestrel(.Transport.Libuv): {formatter(state, ex)}");
+
+                                if (eventId.Id == _connectionKeepAliveEventId)
+                                {
+                                    requestDone.Release();
+                                }
+
+                                if (eventId.Id == _connectionResetEventId)
+                                {
+                                    connectionReset.Release();
+                                }
+                            });
+
+
+                    var mockLogger2 = new Mock<ILogger>();
+                    mockLogger2
+                        .Setup(logger => logger.IsEnabled(It.IsAny<LogLevel>()))
+                        .Returns(true);
+                    mockLogger2
+                        .Setup(logger => logger.Log(LogLevel.Debug, It.IsAny<EventId>(), It.IsAny<object>(), null,
+                            It.IsAny<Func<object, Exception, string>>()))
+                        .Callback<LogLevel, EventId, object, Exception, Func<object, Exception, string>>(
+                            (logLevel, eventId, state, ex, formatter) =>
+                            {
+                                logSb.AppendLine($"Other: {formatter(state, ex)}");
+                            });
+
+                    var mockLoggerFactory = new Mock<ILoggerFactory>();
+                    mockLoggerFactory
+                        .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel"))
+                        .Returns(mockLogger.Object);
+                    mockLoggerFactory
+                        .Setup(factory => factory.CreateLogger("Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv"))
+                        .Returns(mockLogger.Object);
+                    mockLoggerFactory
+                        .Setup(factory => factory.CreateLogger(It.IsNotIn("Microsoft.AspNetCore.Server.Kestrel",
+                            "Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv")))
+                        .Returns(mockLogger2.Object);
+
+
+                    var builder = new WebHostBuilder()
+                        .UseLoggerFactory(mockLoggerFactory.Object)
+                        .UseKestrel(kestrelOptions =>
+                        {
+                            kestrelOptions.Listen(new IPEndPoint(IPAddress.Loopback, 0), listenOptions =>
+                            {
+                                listenOptions.ConnectionAdapters.Add(new StringBuilderConnectionAdapter(adapterSb));
+                            });
+                        })
+                        .UseUrls("http://127.0.0.1:0")
+                        .Configure(app => app.Run(context => TaskCache.CompletedTask));
+
+                    using (var host = builder.Build())
                     {
-                        socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
-                        socket.Send(Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost:\r\n\r\n"));
+                        host.Start();
 
-                        // Wait until request is done being processed
-                        Assert.True(await requestDone.WaitAsync(TimeSpan.FromSeconds(10)));
+                        using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                        {
+                            socket.Connect(new IPEndPoint(IPAddress.Loopback, host.GetPort()));
+                            socket.Send(Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost:\r\n\r\n"));
 
-                        // Force a reset
-                        socket.LingerState = new LingerOption(true, 0);
+                            // Wait until request is done being processed
+                            Assert.True(await requestDone.WaitAsync(TimeSpan.FromSeconds(10)));
+
+                            // Force a reset
+                            socket.LingerState = new LingerOption(true, 0);
+                        }
+
+                        // If the reset is correctly logged as Debug, the wait below should complete shortly.
+                        // This check MUST come before disposing the server, otherwise there's a race where the RST
+                        // is still in flight when the connection is aborted, leading to the reset never being received
+                        // and therefore not logged.
+                        Assert.True(await connectionReset.WaitAsync(TimeSpan.FromSeconds(10)));
                     }
-
-                    // If the reset is correctly logged as Debug, the wait below should complete shortly.
-                    // This check MUST come before disposing the server, otherwise there's a race where the RST
-                    // is still in flight when the connection is aborted, leading to the reset never being received
-                    // and therefore not logged.
-                    Assert.True(await connectionReset.WaitAsync(TimeSpan.FromSeconds(10)));
                 }
+            }
+            catch
+            {
+                _output.WriteLine("Kestrel Logs: ");
+                _output.WriteLine(logSb.ToString());
+                _output.WriteLine("");
+                _output.WriteLine("Adapter Logs: ");
+                _output.WriteLine(adapterSb.ToString());
+                throw;
             }
         }
 

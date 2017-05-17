@@ -46,6 +46,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal
         {
             // Don't log for now since this could be *too* verbose.
             // Reserved: Event ID 3
+            _logger.LogTrace(@"Connection id ""{ConnectionId}"" read ""{Count}"" bytes.", connectionId, count);
         }
 
         public void ConnectionReadFin(string connectionId)
@@ -67,12 +68,14 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv.Internal
         {
             // Don't log for now since this could be *too* verbose.
             // Reserved: Event ID 11
+            _logger.LogTrace(@"Connection id ""{ConnectionId}"" wrote ""{Count}"" bytes.", connectionId, count);
         }
 
         public void ConnectionWriteCallback(string connectionId, int status)
         {
             // Don't log for now since this could be *too* verbose.
             // Reserved: Event ID 12
+            _logger.LogTrace(@"Connection id ""{ConnectionId}"" write callback status: ""{Status}"".", connectionId, status);
         }
 
         public void ConnectionError(string connectionId, Exception ex)
