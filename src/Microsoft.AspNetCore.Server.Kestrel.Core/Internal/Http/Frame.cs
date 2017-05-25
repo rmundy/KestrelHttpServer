@@ -1372,9 +1372,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             => ConnectionInformation.PipeFactory.Create(new PipeOptions
             {
                 ReaderScheduler = ServiceContext.ThreadPool,
-                WriterScheduler = ConnectionInformation.InputWriterScheduler,
-                MaximumSizeHigh = ServiceContext.ServerOptions.Limits.MaxRequestBufferSize ?? 0,
-                MaximumSizeLow = ServiceContext.ServerOptions.Limits.MaxRequestBufferSize ?? 0
+                WriterScheduler = InlineScheduler.Default,
+                MaximumSizeHigh = 1,
+                MaximumSizeLow = 1
             });
 
         private enum HttpRequestTarget

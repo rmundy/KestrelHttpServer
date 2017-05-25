@@ -906,6 +906,20 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core
         internal static string FormatCannotUpgradeNonUpgradableRequest()
             => GetString("CannotUpgradeNonUpgradableRequest");
 
+        /// <summary>
+        /// Request body too large.
+        /// </summary>
+        internal static string BadRequest_RequestBodyTooLarge
+        {
+            get => GetString("BadRequest_RequestBodyTooLarge");
+        }
+
+        /// <summary>
+        /// Request body too large.
+        /// </summary>
+        internal static string FormatBadRequest_RequestBodyTooLarge()
+            => GetString("BadRequest_RequestBodyTooLarge");
+
         private static string GetString(string name, params string[] formatterNames)
         {
             var value = _resourceManager.GetString(name);

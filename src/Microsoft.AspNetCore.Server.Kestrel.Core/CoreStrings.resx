@@ -309,4 +309,7 @@
   <data name="CannotUpgradeNonUpgradableRequest" xml:space="preserve">
     <value>Cannot upgrade a non-upgradable request. Check IHttpUpgradeFeature.IsUpgradableRequest to determine if a request can be upgraded.</value>
   </data>
+  <data name="BadRequest_RequestBodyTooLarge" xml:space="preserve">
+    <value>Request body too large.</value>
+  </data>
 </root>

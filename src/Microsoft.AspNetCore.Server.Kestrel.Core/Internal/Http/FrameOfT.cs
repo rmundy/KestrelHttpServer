@@ -93,8 +93,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
                         InitializeStreams(messageBody);
 
-                        var messageBodyTask = messageBody.StartAsync();
-
                         var context = _application.CreateContext(this);
                         try
                         {
@@ -202,7 +200,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                         }
 
                         // At this point both the request body pipe reader and writer should be completed.
-                        await messageBodyTask;
+                        await messageBody.LifetimeTask;
 
                         // ForZeroContentLength does not complete the reader nor the writer
                         if (_keepAlive && !messageBody.IsEmpty)
