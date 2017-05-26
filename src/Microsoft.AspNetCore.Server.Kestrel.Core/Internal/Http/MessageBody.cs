@@ -575,6 +575,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 // Just drain the data
                 consumed = buffer.Start;
                 examined = buffer.Start;
+
+                //var over
+
                 do
                 {
                     ReadCursor extensionCursor;
