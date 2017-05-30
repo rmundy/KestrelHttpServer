@@ -142,7 +142,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
         public void OnConnectionClosed(Exception ex)
         {
-            Debug.Assert(_frame != null, $"nameof({_frame}) is null");
+            Debug.Assert(_frame != null, $"{nameof(_frame)} is null");
 
             // Abort the connection (if not already aborted)
             _frame.Abort(ex);
@@ -152,7 +152,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
         public Task StopAsync()
         {
-            Debug.Assert(_frame != null, $"nameof({_frame}) is null");
+            Debug.Assert(_frame != null, $"{nameof(_frame)} is null");
 
             _frame.Stop();
 
@@ -161,7 +161,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
         public void Abort(Exception ex)
         {
-            Debug.Assert(_frame != null, $"nameof({_frame}) is null");
+            Debug.Assert(_frame != null, $"{nameof(_frame)} is null");
 
             // Abort the connection (if not already aborted)
             _frame.Abort(ex);
@@ -169,7 +169,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
         public Task AbortAsync(Exception ex)
         {
-            Debug.Assert(_frame != null, $"nameof({_frame}) is null");
+            Debug.Assert(_frame != null, $"{nameof(_frame)} is null");
 
             // Abort the connection (if not already aborted)
             _frame.Abort(ex);
@@ -179,14 +179,14 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
         public void Timeout()
         {
-            Debug.Assert(_frame != null, $"nameof({_frame}) is null");
+            Debug.Assert(_frame != null, $"{nameof(_frame)} is null");
 
             _frame.SetBadRequestState(RequestRejectionReason.RequestTimeout);
         }
 
         private async Task<Stream> ApplyConnectionAdaptersAsync()
         {
-            Debug.Assert(_frame != null, $"nameof({_frame}) is null");
+            Debug.Assert(_frame != null, $"{nameof(_frame)} is null");
 
             var features = new FeatureCollection();
             var connectionAdapters = _context.ConnectionAdapters;
@@ -231,7 +231,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
         public void Tick(DateTimeOffset now)
         {
-            Debug.Assert(_frame != null, $"nameof({_frame}) is null");
+            Debug.Assert(_frame != null, $"{nameof(_frame)} is null");
 
             var timestamp = now.Ticks;
 
@@ -240,12 +240,19 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             {
                 CancelTimeout();
 
-                if (_timeoutAction == TimeoutAction.SendTimeoutResponse)
+                switch (_timeoutAction)
                 {
-                    Timeout();
+                    case TimeoutAction.AbortConnection:
+                        Log.LogError("Timeout. Aborting.");
+                        _frame.Abort(error: null);
+                        break;
+                    case TimeoutAction.SendTimeoutResponse:
+                        Timeout();
+                        goto case TimeoutAction.CloseConnection;
+                    case TimeoutAction.CloseConnection:
+                        _frame.Stop();
+                        break;
                 }
-
-                _frame.Stop();
             }
 
             Interlocked.Exchange(ref _lastTimestamp, timestamp);

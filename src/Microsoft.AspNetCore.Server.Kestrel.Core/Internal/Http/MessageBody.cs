@@ -6,24 +6,27 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure;
 using Microsoft.AspNetCore.Server.Kestrel.Internal.System.IO.Pipelines;
-using Microsoft.Extensions.Internal;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 {
     public abstract class MessageBody
     {
+        protected delegate int OnRead<TState>(ReadableBuffer readableBuffer, TState state, out ReadCursor consumed, out ReadCursor examined);
+
         private static readonly MessageBody _zeroContentLengthClose = new ForZeroContentLength(keepAlive: false);
         private static readonly MessageBody _zeroContentLengthKeepAlive = new ForZeroContentLength(keepAlive: true);
 
         private readonly Frame _context;
         private bool _send100Continue = true;
-        private volatile bool _canceled;
 
         protected MessageBody(Frame context)
         {
             _context = context;
         }
+
+        protected abstract bool Consumed { get; }
 
         public static MessageBody ZeroContentLengthClose => _zeroContentLengthClose;
 
@@ -31,179 +34,147 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         public bool RequestUpgrade { get; protected set; }
 
-        public virtual bool IsEmpty => false;
-
-        public virtual async Task StartAsync()
+        public async Task<int> ReadAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken = default(CancellationToken))
         {
-            Exception error = null;
-
-            try
+            while (!Consumed)
             {
-                while (true)
+                var awaitable = _context.Input.ReadAsync();
+
+                if (!awaitable.IsCompleted)
                 {
-                    var awaitable = _context.Input.ReadAsync();
-
-                    if (!awaitable.IsCompleted)
-                    {
-                        TryProduceContinue();
-                    }
-
-                    var result = await awaitable;
-                    var readableBuffer = result.Buffer;
-                    var consumed = readableBuffer.Start;
-                    var examined = readableBuffer.End;
-
-                    try
-                    {
-                        if (_canceled)
-                        {
-                            break;
-                        }
-
-                        if (!readableBuffer.IsEmpty)
-                        {
-                            var writableBuffer = _context.RequestBodyPipe.Writer.Alloc(1);
-                            bool done;
-
-                            try
-                            {
-                                done = Read(readableBuffer, writableBuffer, out consumed, out examined);
-                            }
-                            finally
-                            {
-                                writableBuffer.Commit();
-                            }
-
-                            await writableBuffer.FlushAsync();
-
-                            if (done)
-                            {
-                                break;
-                            }
-                        }
-                        else if (result.IsCompleted)
-                        {
-                            _context.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
-                        }
-                    }
-                    finally
-                    {
-                        _context.Input.Advance(consumed, examined);
-                    }
+                    TryProduceContinue();
                 }
-            }
-            catch (Exception ex)
-            {
-                error = ex;
-            }
-            finally
-            {
-                _context.RequestBodyPipe.Writer.Complete(error);
-            }
-        }
 
-        public void Cancel()
-        {
-            _canceled = true;
-        }
+                _context.TimeoutControl.SetTimeout(TimeSpan.FromSeconds(5).Ticks, TimeoutAction.AbortConnection);
+                var result = await awaitable;
+                _context.TimeoutControl.CancelTimeout();
 
-        public virtual async Task<int> ReadAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken = default(CancellationToken))
-        {
-            while (true)
-            {
-                var result = await _context.RequestBodyPipe.Reader.ReadAsync();
                 var readableBuffer = result.Buffer;
-                var consumed = readableBuffer.End;
+                var consumed = readableBuffer.Start;
+                var examined = readableBuffer.End;
 
                 try
                 {
                     if (!readableBuffer.IsEmpty)
                     {
-                        var actual = Math.Min(readableBuffer.Length, buffer.Count);
-                        var slice = readableBuffer.Slice(0, actual);
-                        consumed = readableBuffer.Move(readableBuffer.Start, actual);
-                        slice.CopyTo(buffer);
-                        return actual;
+                        var read = Read(readableBuffer, Copy, buffer, out consumed, out examined);
+
+                        if (read > 0 || Consumed)
+                        {
+                            return read;
+                        }
                     }
                     else if (result.IsCompleted)
                     {
-                        return 0;
+                        _context.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
                     }
                 }
                 finally
                 {
-                    _context.RequestBodyPipe.Reader.Advance(consumed);
+                    _context.Input.Advance(consumed, examined);
                 }
             }
+
+            return 0;
         }
 
-        public virtual async Task CopyToAsync(Stream destination, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task CopyToAsync(Stream destination, CancellationToken cancellationToken = default(CancellationToken))
         {
-            while (true)
+            while (!Consumed)
             {
-                var result = await _context.RequestBodyPipe.Reader.ReadAsync();
+                var awaitable = _context.Input.ReadAsync();
+
+                if (!awaitable.IsCompleted)
+                {
+                    TryProduceContinue();
+                }
+
+                var result = await awaitable;
                 var readableBuffer = result.Buffer;
-                var consumed = readableBuffer.End;
+                var consumed = readableBuffer.Start;
+                var examined = readableBuffer.End;
 
                 try
                 {
                     if (!readableBuffer.IsEmpty)
                     {
-                        foreach (var memory in readableBuffer)
+                        Read(readableBuffer, CopyTo, destination, out consumed, out examined);
+
+                        if (Consumed)
                         {
-                            var array = memory.GetArray();
-                            await destination.WriteAsync(array.Array, array.Offset, array.Count, cancellationToken);
+                            return;
                         }
                     }
                     else if (result.IsCompleted)
                     {
-                        return;
+                        _context.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
                     }
                 }
                 finally
                 {
-                    _context.RequestBodyPipe.Reader.Advance(consumed);
+                    _context.Input.Advance(consumed, examined);
                 }
             }
         }
 
-        public virtual async Task ConsumeAsync(CancellationToken cancellationToken = default(CancellationToken))
+        public async Task ConsumeAsync(CancellationToken cancellationToken = default(CancellationToken))
         {
-            Exception error = null;
+            while (!Consumed)
+            {
+                var awaitable = _context.Input.ReadAsync();
 
-            try
-            {
-                ReadResult result;
-                do
+                if (!awaitable.IsCompleted)
                 {
-                    result = await _context.RequestBodyPipe.Reader.ReadAsync();
-                    _context.RequestBodyPipe.Reader.Advance(result.Buffer.End);
-                } while (!result.IsCompleted);
-            }
-            catch (Exception ex)
-            {
-                error = ex;
-                throw;
-            }
-            finally
-            {
-                _context.RequestBodyPipe.Reader.Complete(error);
+                    TryProduceContinue();
+                }
+
+                var result = await awaitable;
+                var readableBuffer = result.Buffer;
+                var consumed = readableBuffer.Start;
+                var examined = readableBuffer.End;
+
+                try
+                {
+                    if (!readableBuffer.IsEmpty)
+                    {
+                        Read<object>(readableBuffer, Consume, null, out consumed, out examined);
+                    }
+                    else if (result.IsCompleted)
+                    {
+                        _context.RejectRequest(RequestRejectionReason.UnexpectedEndOfRequestContent);
+                    }
+                }
+                finally
+                {
+                    _context.Input.Advance(consumed, examined);
+                }
             }
         }
 
-        protected void Copy(ReadableBuffer readableBuffer, WritableBuffer writableBuffer)
+        protected int Copy(ReadableBuffer readableBuffer, ArraySegment<byte> buffer, out ReadCursor consumed, out ReadCursor examined)
         {
-            if (readableBuffer.IsSingleSpan)
+            var actual = Math.Min(readableBuffer.Length, buffer.Count);
+            readableBuffer.Slice(0, actual).CopyTo(buffer);
+            examined = consumed = readableBuffer.Move(readableBuffer.Start, actual);
+            return actual;
+        }
+
+        protected int CopyTo(ReadableBuffer readableBuffer, Stream stream, out ReadCursor consumed, out ReadCursor examined)
+        {
+            foreach (var memory in readableBuffer)
             {
-                writableBuffer.Write(readableBuffer.First.Span);
+                var array = memory.GetArray();
+                stream.Write(array.Array, array.Offset, array.Count);
             }
-            else
-            {
-                foreach (var memory in readableBuffer)
-                {
-                    writableBuffer.Write(memory.Span);
-                }
-            }
+
+            examined = consumed = readableBuffer.End;
+            return readableBuffer.Length;
+        }
+
+        protected int Consume(ReadableBuffer readableBuffer, object state, out ReadCursor consumed, out ReadCursor examined)
+        {
+            examined = consumed = readableBuffer.End;
+            return readableBuffer.Length;
         }
 
         private void TryProduceContinue()
@@ -215,7 +186,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             }
         }
 
-        protected abstract bool Read(ReadableBuffer readableBuffer, WritableBuffer writableBuffer, out ReadCursor consumed, out ReadCursor examined);
+        protected abstract int Read<TState>(ReadableBuffer readableBuffer, OnRead<TState> onRead, TState state, out ReadCursor consumed, out ReadCursor examined);
 
         public static MessageBody For(
             HttpVersion httpVersion,
@@ -303,12 +274,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 RequestUpgrade = true;
             }
 
-            protected override bool Read(ReadableBuffer readableBuffer, WritableBuffer writableBuffer, out ReadCursor consumed, out ReadCursor examined)
+            protected override bool Consumed => false;
+
+            protected override int Read<TState>(ReadableBuffer readableBuffer, OnRead<TState> onRead, TState state, out ReadCursor consumed, out ReadCursor examined)
             {
-                Copy(readableBuffer, writableBuffer);
-                consumed = readableBuffer.End;
-                examined = readableBuffer.End;
-                return false;
+                return onRead(readableBuffer, state, out consumed, out examined);
             }
         }
 
@@ -320,29 +290,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 RequestKeepAlive = keepAlive;
             }
 
-            public override bool IsEmpty => true;
+            protected override bool Consumed => true;
 
-            public override Task StartAsync()
-            {
-                return Task.CompletedTask;
-            }
-
-            public override Task<int> ReadAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken = default(CancellationToken))
-            {
-                return Task.FromResult(0);
-            }
-
-            public override Task CopyToAsync(Stream destination, CancellationToken cancellationToken = default(CancellationToken))
-            {
-                return Task.CompletedTask;
-            }
-
-            public override Task ConsumeAsync(CancellationToken cancellationToken = default(CancellationToken))
-            {
-                return Task.CompletedTask;
-            }
-
-            protected override bool Read(ReadableBuffer readableBuffer, WritableBuffer writableBuffer, out ReadCursor consumed, out ReadCursor examined)
+            protected override int Read<TState>(ReadableBuffer readableBuffer, OnRead<TState> onRead, TState state, out ReadCursor consumed, out ReadCursor examined)
             {
                 throw new NotImplementedException();
             }
@@ -350,33 +300,31 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         private class ForContentLength : MessageBody
         {
-            private readonly long _contentLength;
             private long _inputLength;
 
             public ForContentLength(bool keepAlive, long contentLength, Frame context)
                 : base(context)
             {
                 RequestKeepAlive = keepAlive;
-                _contentLength = contentLength;
-                _inputLength = _contentLength;
+                _inputLength = contentLength;
             }
 
-            protected override bool Read(ReadableBuffer readableBuffer, WritableBuffer writableBuffer, out ReadCursor consumed, out ReadCursor examined)
+            protected override bool Consumed => _inputLength == 0;
+
+            protected override int Read<TState>(ReadableBuffer readableBuffer, OnRead<TState> onRead, TState state, out ReadCursor consumed, out ReadCursor examined)
             {
                 if (_inputLength == 0)
                 {
-                    throw new InvalidOperationException("Attempted to read from completed Content-Length request body.");
+                    consumed = examined = readableBuffer.Start;
+                    return 0;
                 }
 
-                var actual = (int)Math.Min(readableBuffer.Length, _inputLength);
+                var available = (int)Math.Min(_inputLength, readableBuffer.Length);
+                var actual = onRead(readableBuffer.Slice(0, available), state, out consumed, out examined);
+
                 _inputLength -= actual;
 
-                consumed = readableBuffer.Move(readableBuffer.Start, actual);
-                examined = consumed;
-
-                Copy(readableBuffer.Slice(0, actual), writableBuffer);
-
-                return _inputLength == 0;
+                return actual;
             }
         }
 
@@ -402,7 +350,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 _requestHeaders = headers;
             }
 
-            protected override bool Read(ReadableBuffer readableBuffer, WritableBuffer writableBuffer, out ReadCursor consumed, out ReadCursor examined)
+            protected override bool Consumed => _mode == Mode.Complete;
+
+            protected override int Read<TState>(ReadableBuffer readableBuffer, OnRead<TState> onRead, TState state, out ReadCursor consumed, out ReadCursor examined)
             {
                 consumed = default(ReadCursor);
                 examined = default(ReadCursor);
@@ -415,7 +365,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
                         if (_mode == Mode.Prefix)
                         {
-                            return false;
+                            return 0;
                         }
 
                         readableBuffer = readableBuffer.Slice(consumed);
@@ -427,7 +377,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
                         if (_mode == Mode.Extension)
                         {
-                            return false;
+                            return 0;
                         }
 
                         readableBuffer = readableBuffer.Slice(consumed);
@@ -435,14 +385,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
                     if (_mode == Mode.Data)
                     {
-                        ReadChunkedData(readableBuffer, writableBuffer, out consumed, out examined);
-
-                        if (_mode == Mode.Data)
-                        {
-                            return false;
-                        }
-
-                        readableBuffer = readableBuffer.Slice(consumed);
+                        return ReadChunkedData(readableBuffer, onRead, state, out consumed, out examined);
                     }
 
                     if (_mode == Mode.Suffix)
@@ -451,7 +394,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
                         if (_mode == Mode.Suffix)
                         {
-                            return false;
+                            return 0;
                         }
 
                         readableBuffer = readableBuffer.Slice(consumed);
@@ -465,7 +408,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
                     if (_mode == Mode.Trailer)
                     {
-                        return false;
+                        return 0;
                     }
 
                     readableBuffer = readableBuffer.Slice(consumed);
@@ -479,7 +422,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                     }
                 }
 
-                return _mode == Mode.Complete;
+                return 0;
             }
 
             private void ParseChunkedPrefix(ReadableBuffer buffer, out ReadCursor consumed, out ReadCursor examined)
@@ -585,13 +528,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 } while (_mode == Mode.Extension);
             }
 
-            private void ReadChunkedData(ReadableBuffer buffer, WritableBuffer writableBuffer, out ReadCursor consumed, out ReadCursor examined)
+            private int ReadChunkedData<TState>(ReadableBuffer readableBuffer, OnRead<TState> onRead, TState state, out ReadCursor consumed, out ReadCursor examined)
             {
-                var actual = Math.Min(buffer.Length, _inputLength);
-                consumed = buffer.Move(buffer.Start, actual);
-                examined = consumed;
-
-                Copy(buffer.Slice(0, actual), writableBuffer);
+                var available = Math.Min(_inputLength, readableBuffer.Length);
+                var actual = onRead(readableBuffer.Slice(0, available), state, out consumed, out examined);
 
                 _inputLength -= actual;
 
@@ -599,6 +539,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 {
                     _mode = Mode.Suffix;
                 }
+
+                return actual;
             }
 
             private void ParseChunkedSuffix(ReadableBuffer buffer, out ReadCursor consumed, out ReadCursor examined)

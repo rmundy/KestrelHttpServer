@@ -9,14 +9,10 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Server.Kestrel.Core.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
-using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.Internal;
-using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
-using Xunit.Abstractions;
 using Xunit.Sdk;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
@@ -26,15 +22,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         [Theory]
         [InlineData(HttpVersion.Http10)]
         [InlineData(HttpVersion.Http11)]
-        public async Task CanReadFromContentLength(HttpVersion httpVersion)
+        public void CanReadFromContentLength(HttpVersion httpVersion)
         {
             using (var input = new TestInput())
             {
                 var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderContentLength = "5" }, input.FrameContext);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
 
                 input.Add("Hello");
 
@@ -46,8 +40,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
 
                 count = stream.Read(buffer, 0, buffer.Length);
                 Assert.Equal(0, count);
-
-                await bodyTask;
             }
         }
 
@@ -62,8 +54,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
-                var bodyTask = body.StartAsync();
-
                 input.Add("Hello");
 
                 var buffer = new byte[1024];
@@ -74,21 +64,17 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
 
                 count = await stream.ReadAsync(buffer, 0, buffer.Length);
                 Assert.Equal(0, count);
-
-                await bodyTask;
             }
         }
 
         [Fact]
-        public async Task CanReadFromChunkedEncoding()
+        public void CanReadFromChunkedEncoding()
         {
             using (var input = new TestInput())
             {
                 var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked" }, input.FrameContext);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
 
                 input.Add("5\r\nHello\r\n");
 
@@ -102,8 +88,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
 
                 count = stream.Read(buffer, 0, buffer.Length);
                 Assert.Equal(0, count);
-
-                await bodyTask;
             }
         }
 
@@ -115,8 +99,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked" }, input.FrameContext);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
 
                 input.Add("5\r\nHello\r\n");
 
@@ -130,23 +112,19 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
 
                 count = await stream.ReadAsync(buffer, 0, buffer.Length);
                 Assert.Equal(0, count);
-
-                await bodyTask;
             }
         }
 
         [Theory]
         [InlineData(HttpVersion.Http10)]
         [InlineData(HttpVersion.Http11)]
-        public async Task CanReadFromRemainingData(HttpVersion httpVersion)
+        public void CanReadFromRemainingData(HttpVersion httpVersion)
         {
             using (var input = new TestInput())
             {
                 var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderConnection = "upgrade" }, input.FrameContext);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
 
                 input.Add("Hello");
 
@@ -157,8 +135,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 AssertASCII("Hello", new ArraySegment<byte>(buffer, 0, count));
 
                 input.Fin();
-
-                await bodyTask;
             }
         }
 
@@ -173,8 +149,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
-                var bodyTask = body.StartAsync();
-
                 input.Add("Hello");
 
                 var buffer = new byte[1024];
@@ -184,15 +158,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 AssertASCII("Hello", new ArraySegment<byte>(buffer, 0, count));
 
                 input.Fin();
-
-                await bodyTask;
             }
         }
 
         [Theory]
         [InlineData(HttpVersion.Http10)]
         [InlineData(HttpVersion.Http11)]
-        public async Task ReadFromNoContentLengthReturnsZero(HttpVersion httpVersion)
+        public void ReadFromNoContentLengthReturnsZero(HttpVersion httpVersion)
         {
             using (var input = new TestInput())
             {
@@ -200,14 +172,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
-                var bodyTask = body.StartAsync();
-
                 input.Add("Hello");
 
                 var buffer = new byte[1024];
                 Assert.Equal(0, stream.Read(buffer, 0, buffer.Length));
-
-                await bodyTask;
             }
         }
 
@@ -222,14 +190,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
-                var bodyTask = body.StartAsync();
-
                 input.Add("Hello");
 
                 var buffer = new byte[1024];
                 Assert.Equal(0, await stream.ReadAsync(buffer, 0, buffer.Length));
-
-                await bodyTask;
             }
         }
 
@@ -241,8 +205,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "8197" }, input.FrameContext);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
 
                 // Input needs to be greater than 4032 bytes to allocate a block not backed by a slab.
                 var largeInput = new string('a', 8192);
@@ -258,8 +220,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var requestArray = ms.ToArray();
                 Assert.Equal(8197, requestArray.Length);
                 AssertASCII(largeInput + "Hello", new ArraySegment<byte>(requestArray, 0, requestArray.Length));
-
-                await bodyTask;
             }
         }
 
@@ -308,45 +268,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
             }
         }
 
-        [Fact]
-        public async Task CopyToAsyncDoesNotCompletePipeReader()
-        {
-            using (var input = new TestInput())
-            {
-                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "5" }, input.FrameContext);
-                var bodyTask = body.StartAsync();
-
-                input.Add("Hello");
-
-                using (var ms = new MemoryStream())
-                {
-                    await body.CopyToAsync(ms);
-                }
-
-                Assert.Equal(0, await body.ReadAsync(new ArraySegment<byte>(new byte[1])));
-
-                await bodyTask;
-            }
-        }
-
-        [Fact]
-        public async Task ConsumeAsyncCompletesPipeReader()
-        {
-            using (var input = new TestInput())
-            {
-                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "5" }, input.FrameContext);
-                var bodyTask = body.StartAsync();
-
-                input.Add("Hello");
-
-                await body.ConsumeAsync();
-
-                await Assert.ThrowsAsync<InvalidOperationException>(async () => await body.ReadAsync(new ArraySegment<byte>(new byte[1])));
-
-                await bodyTask;
-            }
-        }
-
         public static IEnumerable<object[]> StreamData => new[]
         {
             new object[] { new ThrowOnWriteSynchronousStream() },
@@ -375,18 +296,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
             var mockDestination = new Mock<Stream>();
 
             mockDestination
-                .Setup(m => m.WriteAsync(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), CancellationToken.None))
-                .Callback((byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                .Setup(m => m.Write(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>()))
+                .Callback((byte[] buffer, int offset, int count) =>
                 {
                     writeTcs.SetResult(buffer);
                     writeCount++;
-                })
-                .Returns(TaskCache.CompletedTask);
+                });
 
             using (var input = new TestInput())
             {
                 var body = MessageBody.For(HttpVersion.Http11, headers, input.FrameContext);
-                var bodyTask = body.StartAsync();
 
                 var copyToAsyncTask = body.CopyToAsync(mockDestination.Object);
 
@@ -421,8 +340,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 await copyToAsyncTask;
 
                 Assert.Equal(2, writeCount);
-
-                await bodyTask;
             }
         }
 
@@ -431,15 +348,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         [InlineData("Keep-Alive, Upgrade")]
         [InlineData("upgrade, keep-alive")]
         [InlineData("Upgrade, Keep-Alive")]
-        public async Task ConnectionUpgradeKeepAlive(string headerConnection)
+        public void ConnectionUpgradeKeepAlive(string headerConnection)
         {
             using (var input = new TestInput())
             {
                 var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderConnection = headerConnection }, input.FrameContext);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
 
                 input.Add("Hello");
 
@@ -448,65 +363,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 AssertASCII("Hello", new ArraySegment<byte>(buffer, 0, 5));
 
                 input.Fin();
-
-                await bodyTask;
-            }
-        }
-
-        [Fact]
-        public async Task StartAsyncDoesNotReturnAfterCancelingInput()
-        {
-            using (var input = new TestInput())
-            {
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.FrameContext);
-                var stream = new FrameRequestStream();
-                stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
-
-                // Add some input and consume it to ensure StartAsync is in the loop
-                input.Add("a");
-                Assert.Equal(1, await stream.ReadAsync(new byte[1], 0, 1));
-
-                input.Pipe.Reader.CancelPendingRead();
-
-                // Add more input and verify is read
-                input.Add("b");
-                Assert.Equal(1, await stream.ReadAsync(new byte[1], 0, 1));
-
-                // All input was read, body task should complete
-                await bodyTask;
-            }
-        }
-
-        [Fact]
-        public async Task StartAsyncReturnsAfterCanceling()
-        {
-            using (var input = new TestInput())
-            {
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.FrameContext);
-                var stream = new FrameRequestStream();
-                stream.StartAcceptingReads(body);
-
-                var bodyTask = body.StartAsync();
-
-                // Add some input and consume it to ensure StartAsync is in the loop
-                input.Add("a");
-                Assert.Equal(1, await stream.ReadAsync(new byte[1], 0, 1));
-
-                body.Cancel();
-
-                // Add some more data. Checking for cancelation and exiting the loop
-                // should take priority over reading this data.
-                input.Add("b");
-
-                // Unblock the loop
-                input.Pipe.Reader.CancelPendingRead();
-
-                await bodyTask.TimeoutAfter(TimeSpan.FromSeconds(10));
-
-                // There shouldn't be any additional data available
-                Assert.Equal(0, await stream.ReadAsync(new byte[1], 0, 1));
             }
         }
 

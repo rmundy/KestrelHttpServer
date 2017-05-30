@@ -2,7 +2,6 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure;
@@ -81,11 +80,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 RequestUpgrade = upgradeable;
             }
 
-            protected override bool Read(ReadableBuffer readableBuffer, WritableBuffer writableBuffer, out ReadCursor consumed, out ReadCursor examined)
+            protected override bool Consumed => true;
+
+            protected override int Read<TState>(ReadableBuffer readableBuffer, OnRead<TState> onRead, TState state, out ReadCursor consumed, out ReadCursor examined)
             {
-                consumed = default(ReadCursor);
-                examined = default(ReadCursor);
-                return true;
+                throw new NotImplementedException();
             }
         }
     }
