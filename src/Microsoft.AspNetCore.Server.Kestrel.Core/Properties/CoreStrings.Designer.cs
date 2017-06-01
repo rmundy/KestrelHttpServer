@@ -948,6 +948,34 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core
         internal static string FormatUpgradeCannotBeCalledMultipleTimes()
             => GetString("UpgradeCannotBeCalledMultipleTimes");
 
+        /// <summary>
+        /// DefaultRequestBodyTimeout.MaximumTime ({maxRequestBodyTimeout}) must be greater than DefaultRequestBodyTimeout.MinimumTime ({minRequestBodyTimeout}).
+        /// </summary>
+        internal static string MaxRequestBodyTimeoutSmallerThanMinRequestBodyTimeout
+        {
+            get => GetString("MaxRequestBodyTimeoutSmallerThanMinRequestBodyTimeout");
+        }
+
+        /// <summary>
+        /// DefaultRequestBodyTimeout.MaximumTime ({maxRequestBodyTimeout}) must be greater than DefaultRequestBodyTimeout.MinimumTime ({minRequestBodyTimeout}).
+        /// </summary>
+        internal static string FormatMaxRequestBodyTimeoutSmallerThanMinRequestBodyTimeout(object maxRequestBodyTimeout, object minRequestBodyTimeout)
+            => string.Format(CultureInfo.CurrentCulture, GetString("MaxRequestBodyTimeoutSmallerThanMinRequestBodyTimeout", "maxRequestBodyTimeout", "minRequestBodyTimeout"), maxRequestBodyTimeout, minRequestBodyTimeout);
+
+        /// <summary>
+        /// DefaultRequestBodyTimeout.MaximumTime and DefaultRequestBodyTimeout.MinimumRate must be set together.
+        /// </summary>
+        internal static string MaxRequestBodyTimeoutAndMinRateMustBeSetTogether
+        {
+            get => GetString("MaxRequestBodyTimeoutAndMinRateMustBeSetTogether");
+        }
+
+        /// <summary>
+        /// DefaultRequestBodyTimeout.MaximumTime and DefaultRequestBodyTimeout.MinimumRate must be set together.
+        /// </summary>
+        internal static string FormatMaxRequestBodyTimeoutAndMinRateMustBeSetTogether()
+            => GetString("MaxRequestBodyTimeoutAndMinRateMustBeSetTogether");
+
         private static string GetString(string name, params string[] formatterNames)
         {
             var value = _resourceManager.GetString(name);
