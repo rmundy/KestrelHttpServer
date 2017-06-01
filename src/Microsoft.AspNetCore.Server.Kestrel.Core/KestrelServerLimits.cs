@@ -32,8 +32,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core
         private long? _maxConcurrentConnections = null;
         private long? _maxConcurrentUpgradedConnections = null;
 
-        private readonly RequestBodyTimeout _defaultRequestBodyTimeout = new RequestBodyTimeout { MinimumTime = TimeSpan.FromMinutes(1) };
-
         /// <summary>
         /// Gets or sets the maximum size of the response buffer before write
         /// calls begin to block or return tasks that don't complete until the
@@ -210,6 +208,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core
             }
         }
 
-        public RequestBodyTimeout DefaultRequestBodyTimeout => _defaultRequestBodyTimeout;
+        public RequestBodyTimeout DefaultRequestBodyTimeout { get; } = new RequestBodyTimeout();
     }
 }
