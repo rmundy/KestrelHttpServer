@@ -9,15 +9,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Server.Kestrel.Core.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.Internal;
-using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
-using Xunit.Abstractions;
 using Xunit.Sdk;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
@@ -31,7 +28,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderContentLength = "5" }, input.FrameContext);
+                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderContentLength = "5" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -59,7 +56,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderContentLength = "5" }, input.FrameContext);
+                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderContentLength = "5" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -85,7 +82,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -113,7 +110,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -143,7 +140,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderConnection = "upgrade" }, input.FrameContext);
+                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderConnection = "upgrade" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -170,7 +167,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderConnection = "upgrade" }, input.FrameContext);
+                var body = MessageBody.For(httpVersion, new FrameRequestHeaders { HeaderConnection = "upgrade" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -197,7 +194,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(httpVersion, new FrameRequestHeaders(), input.FrameContext);
+                var body = MessageBody.For(httpVersion, new FrameRequestHeaders(), input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -219,7 +216,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(httpVersion, new FrameRequestHeaders(), input.FrameContext);
+                var body = MessageBody.For(httpVersion, new FrameRequestHeaders(), input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -239,7 +236,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "8197" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "8197" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -270,7 +267,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
             using (var input = new TestInput())
             {
                 var ex = Assert.Throws<BadHttpRequestException>(() =>
-                    MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked, not-chunked" }, input.FrameContext));
+                    MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderTransferEncoding = "chunked, not-chunked" }, input.Frame));
 
                 Assert.Equal(StatusCodes.Status400BadRequest, ex.StatusCode);
                 Assert.Equal(CoreStrings.FormatBadRequest_FinalTransferCodingNotChunked("chunked, not-chunked"), ex.Message);
@@ -284,9 +281,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                input.FrameContext.Method = method;
+                input.Frame.Method = method;
                 var ex = Assert.Throws<BadHttpRequestException>(() =>
-                    MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders(), input.FrameContext));
+                    MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders(), input.Frame));
 
                 Assert.Equal(StatusCodes.Status411LengthRequired, ex.StatusCode);
                 Assert.Equal(CoreStrings.FormatBadRequest_LengthRequired(method), ex.Message);
@@ -300,9 +297,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                input.FrameContext.Method = method;
+                input.Frame.Method = method;
                 var ex = Assert.Throws<BadHttpRequestException>(() =>
-                    MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders(), input.FrameContext));
+                    MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders(), input.Frame));
 
                 Assert.Equal(StatusCodes.Status400BadRequest, ex.StatusCode);
                 Assert.Equal(CoreStrings.FormatBadRequest_LengthRequiredHttp10(method), ex.Message);
@@ -314,7 +311,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "5" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "5" }, input.Frame);
                 var bodyTask = body.StartAsync();
 
                 input.Add("Hello");
@@ -335,7 +332,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "5" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http10, new FrameRequestHeaders { HeaderContentLength = "5" }, input.Frame);
                 var bodyTask = body.StartAsync();
 
                 input.Add("Hello");
@@ -386,7 +383,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
 
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http11, headers, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, headers, input.Frame);
                 var bodyTask = body.StartAsync();
 
                 var copyToAsyncTask = body.CopyToAsync(mockDestination.Object);
@@ -436,7 +433,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderConnection = headerConnection }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderConnection = headerConnection }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -459,7 +456,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -485,7 +482,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
         {
             using (var input = new TestInput())
             {
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -517,11 +514,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
             using (var input = new TestInput())
             {
                 var mockLogger = new Mock<IKestrelTrace>();
-                input.FrameContext.ServiceContext.Log = mockLogger.Object;
-                input.FrameContext.ConnectionIdFeature = "ConnectionId";
-                input.FrameContext.TraceIdentifier = "RequestId";
+                input.Frame.ServiceContext.Log = mockLogger.Object;
+                input.Frame.ConnectionIdFeature = "ConnectionId";
+                input.Frame.TraceIdentifier = "RequestId";
 
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -544,11 +541,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 mockLogger
                     .Setup(logger => logger.RequestBodyDone("ConnectionId", "RequestId"))
                     .Callback(() => logEvent.Set());
-                input.FrameContext.ServiceContext.Log = mockLogger.Object;
-                input.FrameContext.ConnectionIdFeature = "ConnectionId";
-                input.FrameContext.TraceIdentifier = "RequestId";
+                input.Frame.ServiceContext.Log = mockLogger.Object;
+                input.Frame.ConnectionIdFeature = "ConnectionId";
+                input.Frame.TraceIdentifier = "RequestId";
 
-                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.FrameContext);
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "2" }, input.Frame);
                 var stream = new FrameRequestStream();
                 stream.StartAcceptingReads(body);
 
@@ -558,6 +555,37 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 await bodyTask;
 
                 mockLogger.Verify(logger => logger.RequestBodyDone("ConnectionId", "RequestId"));
+            }
+        }
+
+        [Fact]
+        public async Task OnlyEnforcesRequestBodyTimeoutAfterSending100Continue()
+        {
+            using (var input = new TestInput())
+            {
+                var produceContinueCalled = false;
+                var startTimingReadsCalledAfterProduceContinue = false;
+
+                var mockFrameControl = new Mock<IFrameControl>();
+                mockFrameControl
+                    .Setup(frameControl => frameControl.ProduceContinue())
+                    .Callback(() => produceContinueCalled = true);
+                input.Frame.FrameControl = mockFrameControl.Object;
+
+                var mockTimeoutControl = new Mock<ITimeoutControl>();
+                mockTimeoutControl
+                    .Setup(timeoutControl => timeoutControl.StartTimingReads())
+                    .Callback(() => startTimingReadsCalledAfterProduceContinue = produceContinueCalled);
+
+                input.FrameContext.TimeoutControl = mockTimeoutControl.Object;
+
+                var body = MessageBody.For(HttpVersion.Http11, new FrameRequestHeaders { HeaderContentLength = "5" }, input.Frame);
+                var bodyTask = body.StartAsync();
+
+                Assert.True(startTimingReadsCalledAfterProduceContinue);
+
+                input.Fin();
+                await bodyTask;
             }
         }
 
